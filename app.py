@@ -1,44 +1,91 @@
 import streamlit as st
 import feedparser
 import yfinance as yf
-import pandas as pd
 
-# ページのタイトル
-st.title("📈 経済・投資ダッシュボード")
+# 1. ページ全体の設定（横に広く使う設定）
+st.set_page_config(layout="wide", page_title="経済・投資ダッシュボード")
 
+# 2. 参考サイト風のダークモード＆カードデザインを適用（CSS）
+st.markdown("""
+<style>
+    /* 全体の背景を黒っぽく */
+    .stApp {
+        background-color: #121212;
+        color: #ffffff;
+    }
+    /* 指標を表示するカード（枠）のデザイン */
+    div[data-testid="metric-container"] {
+        background-color: #1e1e1e;
+        border: 1px solid #333;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.5);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("📈 世界の主要株価指数・ダッシュボード")
 st.markdown("---")
 
-# 1. 経済ニュースの表示セクション
+# 3. 経済指標の取得と表示セクション
+st.header("🌎 主要指数・為替")
+
+# 取得するティッカーシンボル（yfinance用）
+tickers = {
+    "日経平均": "^N225",
+    "NYダウ": "^DJI",
+    "ナスダック": "^IXIC",
+    "S&P 500": "^GSPC",
+    "米ドル/円": "JPY=X",
+    "ユーロ/円": "EURJPY=X",
+    "WTI原油": "CL=F",
+    "VIX恐怖指数": "^VIX"
+}
+
+# データをキャッシュして読み込みを高速化（5分間保持）
+@st.cache_data(ttl=300)
+def get_market_data():
+    data = {}
+    for name, ticker in tickers.items():
+        try:
+            # 休日などを考慮して直近5日分のデータを取得し、最新2日分を比較
+            hist = yf.Ticker(ticker).history(period="5d")
+            if len(hist) >= 2:
+                current = hist['Close'].iloc[-1]
+                previous = hist['Close'].iloc[-2]
+                diff = current - previous
+                diff_pct = (diff / previous) * 100
+                data[name] = {"current": current, "diff": diff, "diff_pct": diff_pct}
+        except Exception:
+            pass
+    return data
+
+market_data = get_market_data()
+
+# 4列に並べて表示するためのレイアウト作成
+cols = st.columns(4)
+
+col_idx = 0
+for name, data in market_data.items():
+    with cols[col_idx % 4]:
+        # delta_color="inverse" を指定することで「プラスが赤、マイナスが緑」の日本式になります
+        st.metric(
+            label=name, 
+            value=f"{data['current']:,.2f}", 
+            delta=f"{data['diff']:,.2f} ({data['diff_pct']:,.2f}%)",
+            delta_color="inverse" 
+        )
+    col_idx += 1
+
+st.markdown("<br><br>", unsafe_allow_html=True)
+st.markdown("---")
+
+# 4. 経済ニュースの表示セクション（前回と同様）
 st.header("📰 最新の経済ニュース")
 st.write("Yahoo!ニュース（経済）から最新情報を取得しています。")
 
-# Yahoo!ニュースの経済カテゴリのRSS URL
 RSS_URL = "https://news.yahoo.co.jp/rss/topics/business.xml"
 feed = feedparser.parse(RSS_URL)
 
-# 最新のニュースを5件表示
 for entry in feed.entries[:5]:
     st.markdown(f"- [{entry.title}]({entry.link})")
-
-st.markdown("---")
-
-# 2. 株価チャートの表示セクション
-st.header("📊 気になる銘柄の株価チャート")
-
-# ユーザーがティッカーシンボルを入力できるボックス（デフォルトは三菱重工業）
-ticker_input = st.text_input("ティッカーシンボルを入力してください（例: トヨタは 7203.T、Appleは AAPL）", "7011.T")
-
-if ticker_input:
-    try:
-        # yfinanceでデータを取得（過去1ヶ月分）
-        stock_data = yf.Ticker(ticker_input)
-        hist = stock_data.history(period="1mo")
-        
-        if not hist.empty:
-            st.write(f"**{ticker_input} の直近1ヶ月の終値推移**")
-            # Streamlitの標準機能で折れ線グラフを描画
-            st.line_chart(hist['Close'])
-        else:
-            st.warning("データが見つかりませんでした。正しいティッカーシンボルを入力してください。")
-    except Exception as e:
-        st.error(f"エラーが発生しました: {e}")
