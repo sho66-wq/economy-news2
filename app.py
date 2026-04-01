@@ -1,91 +1,148 @@
 import streamlit as st
-import feedparser
 import yfinance as yf
+import pandas as pd
 
-# 1. ページ全体の設定（横に広く使う設定）
-st.set_page_config(layout="wide", page_title="経済・投資ダッシュボード")
+# 1. ページ全体の設定
+st.set_page_config(layout="wide", page_title="リアルタイム指標ダッシュボード")
 
-# 2. 参考サイト風のダークモード＆カードデザインを適用（CSS）
+# 2. 画像のデザインを再現するためのカスタムCSS
 st.markdown("""
 <style>
-    /* 全体の背景を黒っぽく */
-    .stApp {
-        background-color: #121212;
+    /* テーブル全体のデザイン（白背景ベース） */
+    .metric-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: sans-serif;
+        background-color: #ffffff;
+        color: #333333;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .metric-table th, .metric-table td {
+        border: 1px solid #dcdcdc;
+        padding: 10px 8px;
+        text-align: right;
+        vertical-align: middle;
+    }
+    .metric-table th {
+        background-color: #fcefb4; /* ヘッダーを少し黄色っぽく */
+        text-align: center;
+        font-size: 14px;
+        font-weight: bold;
+    }
+    /* 銘柄名カラム（左寄せ、濃いグレー背景） */
+    .name-col {
+        text-align: left !important;
+        font-weight: bold;
+        background-color: #4a4a4a;
         color: #ffffff;
+        padding-left: 12px !important;
+        font-size: 16px;
     }
-    /* 指標を表示するカード（枠）のデザイン */
-    div[data-testid="metric-container"] {
-        background-color: #1e1e1e;
-        border: 1px solid #333;
-        padding: 15px;
-        border-radius: 8px;
-        box-shadow: 2px 2px 5px rgba(0,0,0,0.5);
-    }
+    /* 数値のフォントサイズ */
+    .val-col { font-size: 20px; font-weight: bold; }
+    /* 上昇（緑）と下落（赤）のデザイン */
+    .up { color: #008000; font-weight: bold; background-color: #eafaea; }
+    .down { color: #ff0000; font-weight: bold; background-color: #faeaea; }
+    .flat { color: #333; font-weight: bold; }
+    /* 高値・安値の小さな文字 */
+    .hl-col { font-size: 12px; color: #888; text-align: right; line-height: 1.2; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📈 世界の主要株価指数・ダッシュボード")
-st.markdown("---")
+st.title("📊 リアルタイム 経済指標一覧")
 
-# 3. 経済指標の取得と表示セクション
-st.header("🌎 主要指数・為替")
-
-# 取得するティッカーシンボル（yfinance用）
-tickers = {
-    "日経平均": "^N225",
-    "NYダウ": "^DJI",
-    "ナスダック": "^IXIC",
-    "S&P 500": "^GSPC",
-    "米ドル/円": "JPY=X",
-    "ユーロ/円": "EURJPY=X",
-    "WTI原油": "CL=F",
-    "VIX恐怖指数": "^VIX"
+# 3. 取得するティッカーシンボルと表示名の定義
+# ※yfinanceで取得できない日本の指数は連動するETF(xxxx.T)で代用しています
+tickers_info = {
+    "^N225": ("日経平均株価", "🇯🇵"),
+    "1306.T": ("TOPIX (※ETF連動)", "🇯🇵"),
+    "1591.T": ("JPX日経400 (※ETF連動)", "🇯🇵"),
+    "2516.T": ("グロース250 (※ETF連動)", "🇯🇵"),
+    "JPY=X": ("為替 ドル円", "🇺🇸"),
+    "EURJPY=X": ("為替 ユーロ円", "🇪🇺"),
+    "NIY=F": ("先物 日経平均", "🇯🇵"),
+    "^JN09": ("日本国債10年利回り", "🇯🇵"),
+    "^JNIV": ("日経VI (恐怖指数)", "💀"),
+    "1343.T": ("東証REIT (※ETF連動)", "🇯🇵")
 }
 
-# データをキャッシュして読み込みを高速化（5分間保持）
-@st.cache_data(ttl=300)
-def get_market_data():
-    data = {}
-    for name, ticker in tickers.items():
+# 4. データ取得関数（60秒間キャッシュして制限エラーを防ぐ）
+@st.cache_data(ttl=60)
+def fetch_data():
+    data = []
+    for ticker, (name, flag) in tickers_info.items():
         try:
-            # 休日などを考慮して直近5日分のデータを取得し、最新2日分を比較
-            hist = yf.Ticker(ticker).history(period="5d")
+            tkr = yf.Ticker(ticker)
+            hist = tkr.history(period="5d")
             if len(hist) >= 2:
-                current = hist['Close'].iloc[-1]
-                previous = hist['Close'].iloc[-2]
-                diff = current - previous
-                diff_pct = (diff / previous) * 100
-                data[name] = {"current": current, "diff": diff, "diff_pct": diff_pct}
-        except Exception:
+                curr = hist['Close'].iloc[-1]
+                prev = hist['Close'].iloc[-2]
+                high = hist['High'].iloc[-1]
+                low = hist['Low'].iloc[-1]
+                
+                diff = curr - prev
+                pct = (diff / prev) * 100
+                data.append({
+                    "ticker": ticker, "name": name, "flag": flag,
+                    "curr": curr, "diff": diff, "pct": pct, "high": high, "low": low
+                })
+        except:
             pass
     return data
 
-market_data = get_market_data()
+market_data = fetch_data()
 
-# 4列に並べて表示するためのレイアウト作成
-cols = st.columns(4)
+# 5. NT倍率とドル建て日経平均の自動計算
+n225 = next((item for item in market_data if item["ticker"] == "^N225"), None)
+topix = next((item for item in market_data if item["ticker"] == "1306.T"), None)
+usdjpy = next((item for item in market_data if item["ticker"] == "JPY=X"), None)
 
-col_idx = 0
-for name, data in market_data.items():
-    with cols[col_idx % 4]:
-        # delta_color="inverse" を指定することで「プラスが赤、マイナスが緑」の日本式になります
-        st.metric(
-            label=name, 
-            value=f"{data['current']:,.2f}", 
-            delta=f"{data['diff']:,.2f} ({data['diff_pct']:,.2f}%)",
-            delta_color="inverse" 
-        )
-    col_idx += 1
+if n225 and topix:
+    nt_ratio = n225["curr"] / topix["curr"]
+    prev_nt = (n225["curr"] - n225["diff"]) / (topix["curr"] - topix["diff"])
+    diff_nt = nt_ratio - prev_nt
+    pct_nt = (diff_nt / prev_nt) * 100
+    market_data.append({"ticker": "NT", "name": "NT倍率 (ETF基準)", "flag": "🇯🇵", "curr": nt_ratio, "diff": diff_nt, "pct": pct_nt, "high": nt_ratio, "low": nt_ratio})
 
-st.markdown("<br><br>", unsafe_allow_html=True)
-st.markdown("---")
+if n225 and usdjpy:
+    dol_nikkei = n225["curr"] / usdjpy["curr"]
+    prev_dol = (n225["curr"] - n225["diff"]) / (usdjpy["curr"] - usdjpy["diff"])
+    diff_dol = dol_nikkei - prev_dol
+    pct_dol = (diff_dol / prev_dol) * 100
+    market_data.append({"ticker": "USD_N225", "name": "ドル建て日経平均", "flag": "🇯🇵", "curr": dol_nikkei, "diff": diff_dol, "pct": pct_dol, "high": dol_nikkei, "low": dol_nikkei})
 
-# 4. 経済ニュースの表示セクション（前回と同様）
-st.header("📰 最新の経済ニュース")
-st.write("Yahoo!ニュース（経済）から最新情報を取得しています。")
+# 6. HTMLテーブルの生成（画像のデザインを再現）
+html = '<table class="metric-table">'
+html += '<tr><th>銘柄</th><th>現在値</th><th>前日比</th><th>前日比%</th><th>高値 / 安値</th></tr>'
 
-RSS_URL = "https://news.yahoo.co.jp/rss/topics/business.xml"
-feed = feedparser.parse(RSS_URL)
+for item in market_data:
+    name_str = f"{item['flag']} {item['name']}"
+    
+    # 為替や利回りは小数点以下3桁、それ以外は2桁に調整
+    is_fx_or_yield = "為替" in item["name"] or "利回り" in item["name"] or "倍率" in item["name"]
+    decimals = 3 if is_fx_or_yield else 2
+    
+    curr_str = f"{item['curr']:,.{decimals}f}"
+    diff_str = f"{item['diff']:+,.{decimals}f}"
+    pct_str = f"{item['pct']:+,.2f}%"
+    high_str = f"H: {item['high']:,.{decimals}f}"
+    low_str = f"L: {item['low']:,.{decimals}f}"
+    
+    # プラスマイナスで色と矢印を分岐
+    css_class = "up" if item['diff'] > 0 else "down" if item['diff'] < 0 else "flat"
+    sign_arrow = "▲" if item['diff'] > 0 else "▼" if item['diff'] < 0 else ""
+    
+    html += f'''
+    <tr>
+        <td class="name-col">{name_str}</td>
+        <td class="val-col">{curr_str}</td>
+        <td class="{css_class}">{diff_str}</td>
+        <td class="{css_class}">{sign_arrow}{pct_str}</td>
+        <td class="hl-col">{high_str}<br>{low_str}</td>
+    </tr>
+    '''
 
-for entry in feed.entries[:5]:
-    st.markdown(f"- [{entry.title}]({entry.link})")
+html += '</table>'
+
+# HTMLを描画
+st.write(html, unsafe_allow_html=True)
