@@ -24,7 +24,7 @@ st.markdown("""
         vertical-align: middle;
     }
     .metric-table th {
-        background-color: #fcefb4; /* ヘッダーを少し黄色っぽく */
+        background-color: #fcefb4;
         text-align: center;
         font-size: 14px;
         font-weight: bold;
@@ -52,7 +52,6 @@ st.markdown("""
 st.title("📊 リアルタイム 経済指標一覧")
 
 # 3. 取得するティッカーシンボルと表示名の定義
-# ※yfinanceで取得できない日本の指数は連動するETF(xxxx.T)で代用しています
 tickers_info = {
     "^N225": ("日経平均株価", "🇯🇵"),
     "1306.T": ("TOPIX (※ETF連動)", "🇯🇵"),
@@ -111,7 +110,7 @@ if n225 and usdjpy:
     pct_dol = (diff_dol / prev_dol) * 100
     market_data.append({"ticker": "USD_N225", "name": "ドル建て日経平均", "flag": "🇯🇵", "curr": dol_nikkei, "diff": diff_dol, "pct": pct_dol, "high": dol_nikkei, "low": dol_nikkei})
 
-# 6. HTMLテーブルの生成（画像のデザインを再現）
+# 6. HTMLテーブルの生成
 html = '<table class="metric-table">'
 html += '<tr><th>銘柄</th><th>現在値</th><th>前日比</th><th>前日比%</th><th>高値 / 安値</th></tr>'
 
@@ -132,17 +131,10 @@ for item in market_data:
     css_class = "up" if item['diff'] > 0 else "down" if item['diff'] < 0 else "flat"
     sign_arrow = "▲" if item['diff'] > 0 else "▼" if item['diff'] < 0 else ""
     
-    html += f'''
-    <tr>
-        <td class="name-col">{name_str}</td>
-        <td class="val-col">{curr_str}</td>
-        <td class="{css_class}">{diff_str}</td>
-        <td class="{css_class}">{sign_arrow}{pct_str}</td>
-        <td class="hl-col">{high_str}<br>{low_str}</td>
-    </tr>
-    '''
+    # 【修正点】改行をなくして1行に繋げました
+    html += f'<tr><td class="name-col">{name_str}</td><td class="val-col">{curr_str}</td><td class="{css_class}">{diff_str}</td><td class="{css_class}">{sign_arrow}{pct_str}</td><td class="hl-col">{high_str}<br>{low_str}</td></tr>'
 
 html += '</table>'
 
-# HTMLを描画
-st.write(html, unsafe_allow_html=True)
+# 【修正点】st.write から st.markdown に変更し、確実にHTMLとしてレンダリングさせます
+st.markdown(html, unsafe_allow_html=True)
